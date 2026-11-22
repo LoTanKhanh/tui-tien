@@ -861,10 +861,11 @@ function bodyAcc(){
      '<div class="split"><div><span class="lbl">Trong quỹ</span><b class="num">'+fmt(T.fund)+'</b></div><div><span class="lbl">Nợ thẻ, trả sau</span><b class="num '+(T.owed?'neg':'')+'">'+fmt(T.owed)+'</b></div></div>'+
      '<p class="muted small" style="margin-top:10px">Tiền ròng sau khi trừ mọi khoản nợ: <b class="num '+(net<0?'neg':'')+'">'+fmt(net)+'</b></p></section>';
   h+='<div class="meta2" style="margin-bottom:12px"><button class="btn pri" data-a="tfNew">Chuyển tiền</button><button class="btn" data-a="accNew">Thêm tài khoản</button></div>';
-  var sections=[[['cash','wallet'],'Tiền mặt và ví',false],[['bank'],'Ngân hàng',false],[['credit'],'Thẻ tín dụng',true],[['later'],'Ví trả sau',true],[['fund'],'Quỹ',false]];
+  var sections=[[['cash'],'Tiền mặt',false],[['wallet'],'Ví điện tử',false],[['bank'],'Ngân hàng',false],[['credit'],'Thẻ tín dụng',true],[['later'],'Ví trả sau',true],[['fund'],'Quỹ',false]];
   sections.forEach(function(sec){
     var list=db.accounts.filter(function(a){return sec[0].indexOf(a.kind)>=0;}); if(!list.length) return;
-    h+='<h2 class="h" style="margin:16px 2px 8px">'+sec[1]+'</h2>';
+    var sum=0; list.forEach(function(a){sum+=accVal(a);});
+    h+='<div class="ghead" style="margin:16px 2px 8px"><h2 class="h">'+sec[1]+'</h2><b class="num '+(sum<0?'neg':'')+'">'+(sec[2]?'Dư nợ ':'')+fmt(sum)+'</b></div>';
     h+=sec[2]?list.map(cardCard).join(''):'<div class="card list">'+list.map(acctRow).join('')+'</div>';
   });
   if(!db.accounts.some(function(a){return isLiab(a)||a.kind==='fund'||a.kind==='bank'||a.kind==='wallet';}))
