@@ -459,12 +459,12 @@ function flow(accId,before){
 /* Số dư (tài khoản thường) hoặc dư nợ (thẻ, trả sau) */
 function accVal(a,before){var f=flow(a.id,before); return isLiab(a)?a.open-f:a.open+f;}
 function totals(before){
-  var have=0,fund=0,owed=0,avail=0;
+  var have=0,fund=0,owed=0;
   db.accounts.forEach(function(a){
     var v=accVal(a,before);
-    if(a.kind==='fund') fund+=v; else if(isLiab(a)){owed+=v; if(a.limit>0) avail+=Math.max(0,a.limit-v);} else have+=v;
+    if(a.kind==='fund') fund+=v; else if(isLiab(a)) owed+=v; else have+=v;
   });
-  return {have:have,fund:fund,owed:owed,avail:avail};
+  return {have:have,fund:fund,owed:owed};
 }
 function debtInfo(d){
   var paid=(+d.prepaid||0);
@@ -617,8 +617,8 @@ function vHome(){
 
   var T=totals();
   h+='<section class="card"><div class="row" style="justify-content:space-between;margin-bottom:6px"><h2 class="h" style="margin:0">Tài khoản</h2><button class="btn sm" data-a="accGo" data-id="acc">Chi tiết</button></div>'+
-     '<div class="num" style="font-size:24px;font-weight:700">'+fmt(T.have+T.avail)+'</div>'+
-     '<p class="muted small">Tiền đang có '+fmt(T.have)+(T.avail?' · Thẻ còn dùng '+fmt(T.avail):'')+(T.fund?' · Quỹ '+fmt(T.fund):'')+(T.owed?' · Nợ thẻ, trả sau '+fmt(T.owed):'')+'</p></section>';
+     '<div class="num" style="font-size:24px;font-weight:700">'+fmt(T.have)+'</div>'+
+     '<p class="muted small">Tiền đang có'+(T.fund?' · Quỹ '+fmt(T.fund):'')+(T.owed?' · Nợ thẻ, trả sau '+fmt(T.owed):'')+'</p></section>';
 
   var items=Object.keys(s.byCat).map(function(k){return [k,s.byCat[k]];}).filter(function(x){return x[1]>0;}).sort(function(a,b){return b[1]-a[1];});
   h+='<section class="card"><h2 class="h">Chi theo nhóm</h2>';
@@ -940,11 +940,10 @@ function baseEdit(){
 /* ================= Tài khoản ================= */
 function acctRow(a){
   var v=accVal(a), sub=KN[a.kind], liab=isLiab(a);
-  var lim=liab&&a.limit>0;
-  if(lim) sub+=' · nợ '+fmtNum(v)+'đ / hạn mức '+fmtNum(a.limit)+'đ';
+  if(liab&&a.limit) sub+=' · hạn mức '+fmtNum(a.limit)+'đ, còn dùng '+fmtNum(Math.max(0,a.limit-v))+'đ';
   if(a.kind==='fund'&&a.target) sub+=' · mục tiêu '+fmtNum(a.target)+'đ ('+Math.min(999,Math.round(v/a.target*100))+'%)';
   return '<button class="txr" data-a="accEdit" data-id="'+esc(a.id)+'"><span class="cico" style="--cc:var(--c'+KC[a.kind]+')">'+icon(KI[a.kind],20)+'</span>'+
-    '<span class="grow tx"><b>'+esc(a.name)+'</b><small>'+esc(sub)+'</small></span><span class="num '+((v<0||(liab&&v>0&&!lim))?'neg':'')+'" style="font-weight:700">'+(lim?fmt(Math.max(0,a.limit-v)):(liab?'Nợ ':'')+fmt(v))+'</span></button>';
+    '<span class="grow tx"><b>'+esc(a.name)+'</b><small>'+esc(sub)+'</small></span><span class="num '+((v<0||(liab&&v>0))?'neg':'')+'" style="font-weight:700">'+(liab?'Nợ ':'')+fmt(v)+'</span></button>';
 }
 function cardCard(a){
   var owed=accVal(a), lim=a.limit, avail=Math.max(0,lim-owed), pct=lim?Math.min(100,owed/lim*100):0, st=lim?budState(owed,lim):'';
@@ -962,16 +961,15 @@ function cardCard(a){
 }
 function bodyAcc(){
   var T=totals(), loans=loanRemain(), net=T.have+T.fund-T.owed-loans, h='';
-  h+='<section class="card hero"><div class="lbl">Tổng có thể dùng ngay</div><div class="big num '+(T.have+T.avail<0?'neg':'')+'">'+fmt(T.have+T.avail)+'</div>'+
-     '<div class="split"><div><span class="lbl">Tiền mặt, ví, ngân hàng</span><b class="num '+(T.have<0?'neg':'')+'">'+fmt(T.have)+'</b></div><div><span class="lbl">Thẻ, trả sau còn dùng</span><b class="num">'+fmt(T.avail)+'</b></div></div>'+
-     '<p class="muted small" style="margin-top:8px">Trong quỹ '+fmt(T.fund)+' · Đang nợ thẻ '+fmt(T.owed)+'</p>'+
+  h+='<section class="card hero"><div class="lbl">Tiền đang có (tiền mặt, ví, ngân hàng)</div><div class="big num '+(T.have<0?'neg':'')+'">'+fmt(T.have)+'</div>'+
+     '<div class="split"><div><span class="lbl">Trong quỹ</span><b class="num">'+fmt(T.fund)+'</b></div><div><span class="lbl">Nợ thẻ, trả sau</span><b class="num '+(T.owed?'neg':'')+'">'+fmt(T.owed)+'</b></div></div>'+
      '<p class="muted small" style="margin-top:10px">Tiền ròng sau khi trừ mọi khoản nợ: <b class="num '+(net<0?'neg':'')+'">'+fmt(net)+'</b></p></section>';
   h+='<div class="meta2" style="margin-bottom:12px"><button class="btn pri" data-a="tfNew">Chuyển tiền</button><button class="btn" data-a="accNew">Thêm tài khoản</button></div>';
   var sections=[[['cash'],'Tiền mặt',false],[['wallet'],'Ví điện tử',false],[['bank'],'Ngân hàng',false],[['credit'],'Thẻ tín dụng',true],[['later'],'Ví trả sau',true],[['fund'],'Quỹ',false]];
   sections.forEach(function(sec){
     var list=db.accounts.filter(function(a){return sec[0].indexOf(a.kind)>=0;}); if(!list.length) return;
-    var sum=0,owedS=0; list.forEach(function(a){var v=accVal(a); if(sec[2]){owedS+=v; if(a.limit>0) sum+=Math.max(0,a.limit-v);} else sum+=v;});
-    h+='<div class="ghead" style="margin:16px 2px 8px"><h2 class="h">'+sec[1]+'</h2><b class="num '+(sum<0?'neg':'')+'">'+(sec[2]?'Còn dùng ':'')+fmt(sum)+'</b></div>';
+    var sum=0; list.forEach(function(a){sum+=accVal(a);});
+    h+='<div class="ghead" style="margin:16px 2px 8px"><h2 class="h">'+sec[1]+'</h2><b class="num '+(sum<0?'neg':'')+'">'+(sec[2]?'Dư nợ ':'')+fmt(sum)+'</b></div>';
     h+='<div class="card list">'+list.map(acctRow).join('')+'</div>';
   });
   if(db.accounts.some(isLiab)) h+='<div class="card flat" style="margin-top:12px"><p class="muted small">Chi tiêu bằng thẻ hoặc ví trả sau sẽ tự ghi vào Nợ thẻ.</p><div style="margin-top:8px"><button class="btn sm" data-a="accGo" data-id="debt">Xem chi tiết nợ</button></div></div>';
