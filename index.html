@@ -520,7 +520,8 @@ function grpOf(catId){return catId==='debt'?'fixed':(catOf(catId).g==='fixed'?'f
 /* Tổng ngân sách = tiền đang có vào đầu tháng (cash + ví + bank), hoặc số người dùng tự đặt */
 function baseFor(mk){
   if(db.baseOv[mk]>0) return {v:db.baseOv[mk],manual:true};
-  return {v:Math.max(0,totals(mk+'-01').have),manual:false};
+  var open=Math.max(0,totals(mk+'-01').have), inc=sums(mk).inc;
+  return {v:open+inc,open:open,inc:inc,manual:false};
 }
 function fundIn(a,mk){
   var s=0; monthTx(mk).forEach(function(t){if(t.type==='tf'&&t.to===a.id) s+=t.amount;}); return s;
@@ -868,10 +869,11 @@ function vBudget(){
   var alloc=0; ['fixed','vari','fund'].forEach(function(g){G[g].forEach(function(r){alloc+=r.lim;});});
   var free=base.v-alloc, st=alloc>base.v?'over':(alloc>=base.v*0.9&&base.v>0?'warn':'');
   var h='<div class="top"><h1 class="h1">Ngân sách</h1></div>'+monthBar();
-  h+='<section class="card hero"><div class="row" style="justify-content:space-between"><span class="lbl">Tổng ngân sách'+(base.manual?' (tự đặt)':' (tiền đang có đầu tháng)')+'</span><button class="btn sm" data-a="baseEdit">Sửa</button></div>'+
+  h+='<section class="card hero"><div class="row" style="justify-content:space-between"><span class="lbl">Tổng ngân sách'+(base.manual?' (tự đặt)':' (tiền đầu tháng + thu trong tháng)')+'</span><button class="btn sm" data-a="baseEdit">Sửa</button></div>'+
      '<div class="big num" style="margin-bottom:10px">'+fmt(base.v)+'</div>'+
      '<div class="bar '+st+'" style="margin-bottom:12px"><i style="width:'+(base.v?Math.min(100,alloc/base.v*100):(alloc?100:0)).toFixed(1)+'%"></i></div>'+
-     '<div class="split"><div><span class="lbl">Đã phân bổ</span><b class="num">'+fmt(alloc)+'</b></div><div><span class="lbl">'+(free<0?'Vượt tổng':'Chưa phân bổ')+'</span><b class="num '+(free<0?'neg':'pos')+'">'+fmt(Math.abs(free))+'</b></div></div></section>';
+     '<div class="split"><div><span class="lbl">Đã phân bổ</span><b class="num">'+fmt(alloc)+'</b></div><div><span class="lbl">'+(free<0?'Còn thiếu':'Còn dư')+'</span><b class="num '+(free<0?'neg':'pos')+'">'+fmt(Math.abs(free))+'</b></div></div>'+
+     (base.manual?'':'<p class="muted small" style="margin-top:10px">Tiền đầu tháng '+fmt(base.open)+' + thu trong tháng '+fmt(base.inc)+'</p>')+'</section>';
 
   ['fixed','vari'].forEach(function(g){
     var lim=0,sp=0; G[g].forEach(function(r){lim+=r.lim; sp+=r.sp;});
@@ -932,7 +934,7 @@ function limitEdit(key){
 function baseEdit(){
   var mk=ui.month, b=baseFor(mk);
   openNum({title:'Tổng ngân sách '+monthLabel(mk).toLowerCase(),
-    hint:'Mặc định bằng tiền đang có vào đầu tháng (tiền mặt, ví, ngân hàng). Nhập số khác nếu muốn.',
+    hint:'Mặc định bằng tiền đầu tháng (tiền mặt, ví, ngân hàng) cộng tổng thu đã ghi trong tháng. Nhập số khác nếu muốn.',
     value:b.v,sugg:[],clear:b.manual,clearLabel:'Dùng tự động',
     save:function(v){mutate(function(){if(v>0) db.baseOv[mk]=v; else delete db.baseOv[mk];},'Đã lưu tổng ngân sách'); closeSheet(); render();}});
 }
