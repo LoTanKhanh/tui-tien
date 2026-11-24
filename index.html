@@ -411,7 +411,7 @@ function norm(d){
   tx.forEach(function(t){if(t.type!=='tf'&&cidT[t.cat]!==t.type) t.cat=t.type==='in'?'in_other':'other';});
   rec.forEach(function(r){if(cidT[r.cat]!==r.type) r.cat=r.type==='in'?'in_other':'other';});
   Object.keys(budgets).forEach(function(k){if(k.indexOf('fund:')!==0&&cidT[k]!=='out') delete budgets[k];});
-  return {v:2,accounts:accounts,tx:tx,debts:debts,budgets:budgets,cats:cats,baseOv:baseOv,rec:rec,
+  return {v:2,accounts:accounts,tx:tx,debts:debts,budgets:budgets,cats:cats,baseOv:baseOv,budStart:/^\d{4}-\d{2}-\d{2}$/.test(d.budStart||'')?d.budStart:'',rec:rec,
     lastAcc:ids[d.lastAcc]?d.lastAcc:'',lastBackup:+d.lastBackup||0,created:+d.created||Date.now()};
 }
 function load(){
@@ -515,16 +515,30 @@ function avg3(catId){
 }
 function daysSince(){return Math.floor((Date.now()-db.lastBackup)/864e5);}
 function backupOverdue(){return db.tx.length>0&&(!db.lastBackup||Date.now()-db.lastBackup>7*864e5);}
+/* Ngày bắt đầu áp dụng ngân sách: '' = tính cả tháng; ngày trong tháng = chỉ tính từ ngày đó; '9999-12-31' = tháng chưa áp dụng */
+function bFrom(mk){
+  var bs=db.budStart; if(!bs||bs<=mk+'-01') return '';
+  return bs>mk+'-31'?'9999-12-31':bs;
+}
+function bsums(mk){
+  var f=bFrom(mk), inc=0,out=0,byCat={};
+  monthTx(mk).forEach(function(t){
+    if(f&&t.date<f) return;
+    if(t.type==='in') inc+=t.amount;
+    else if(t.type==='out'){out+=t.amount; byCat[t.cat]=(byCat[t.cat]||0)+t.amount;}
+  });
+  return {inc:inc,out:out,byCat:byCat};
+}
 function budState(sp,lim){return sp>lim?'over':(sp>=lim*0.8?'warn':'');}
 function grpOf(catId){return catId==='debt'?'fixed':(catOf(catId).g==='fixed'?'fixed':'vari');}
 /* Tổng ngân sách = tiền đang có vào đầu tháng (cash + ví + bank), hoặc số người dùng tự đặt */
 function baseFor(mk){
   if(db.baseOv[mk]>0) return {v:db.baseOv[mk],manual:true};
-  var open=Math.max(0,totals(mk+'-01').have), inc=sums(mk).inc;
+  var f=bFrom(mk), open=Math.max(0,totals(f&&f<'9999'?f:mk+'-01').have), inc=bsums(mk).inc;
   return {v:open+inc,open:open,inc:inc,manual:false};
 }
 function fundIn(a,mk){
-  var s=0; monthTx(mk).forEach(function(t){if(t.type==='tf'&&t.to===a.id) s+=t.amount;}); return s;
+  var s=0,f=bFrom(mk); monthTx(mk).forEach(function(t){if(t.type==='tf'&&t.to===a.id&&(!f||t.date>=f)) s+=t.amount;}); return s;
 }
 function reminders(){
   var r=[];
@@ -635,12 +649,13 @@ function vHome(){
   }
   h+='</section>';
 
-  var watch=outCats().filter(function(c){return c.id!=='debt'&&db.budgets[c.id]>0&&(s.byCat[c.id]||0)>=db.budgets[c.id]*0.8;})
-    .sort(function(a,b){return (s.byCat[b.id]||0)/db.budgets[b.id]-(s.byCat[a.id]||0)/db.budgets[a.id];}).slice(0,3);
+  var sb=bsums(ui.month);
+  var watch=outCats().filter(function(c){return c.id!=='debt'&&db.budgets[c.id]>0&&(sb.byCat[c.id]||0)>=db.budgets[c.id]*0.8;})
+    .sort(function(a,b){return (sb.byCat[b.id]||0)/db.budgets[b.id]-(sb.byCat[a.id]||0)/db.budgets[a.id];}).slice(0,3);
   if(watch.length){
     h+='<section class="card"><div class="row" style="justify-content:space-between;margin-bottom:10px"><h2 class="h" style="margin:0">Cần để ý</h2><button class="btn sm" data-a="tab" data-t="budget">Ngân sách</button></div>';
     watch.forEach(function(c){
-      var sp=s.byCat[c.id]||0, lim=db.budgets[c.id], st=budState(sp,lim);
+      var sp=sb.byCat[c.id]||0, lim=db.budgets[c.id], st=budState(sp,lim);
       h+='<div class="brow"><span>'+esc(c.n)+'</span><span class="st '+st+'">'+(sp>lim?'Vượt '+fmt(sp-lim):'Đã dùng '+Math.round(sp/lim*100)+'%')+'</span></div><div class="bar '+st+'"><i style="width:'+Math.min(100,sp/lim*100).toFixed(1)+'%"></i></div>';
     });
     h+='</section>';
@@ -861,7 +876,7 @@ function bRow(key,icn,cc,name,sp,lim,mode,sub){
     (lim&&sub?'<span class="muted small" style="display:block">'+esc(sub)+'</span>':'')+'</span></button>';
 }
 function vBudget(){
-  var mk=ui.month, s=sums(mk), L=db.budgets, base=baseFor(mk);
+  var mk=ui.month, s=bsums(mk), L=db.budgets, base=baseFor(mk), bf=bFrom(mk), notYet=bf>='9999';
   var funds=db.accounts.filter(function(a){return a.kind==='fund';});
   var G={fixed:[],vari:[],fund:[]};
   outCats().forEach(function(c){G[grpOf(c.id)].push({key:c.id,c:c,lim:L[c.id]||0,sp:s.byCat[c.id]||0});});
@@ -869,11 +884,14 @@ function vBudget(){
   var alloc=0; ['fixed','vari','fund'].forEach(function(g){G[g].forEach(function(r){alloc+=r.lim;});});
   var free=base.v-alloc, st=alloc>base.v?'over':(alloc>=base.v*0.9&&base.v>0?'warn':'');
   var h='<div class="top"><h1 class="h1">Ngân sách</h1></div>'+monthBar();
+  h+='<section class="card flat"><div class="row" style="justify-content:space-between;gap:10px"><span class="small">'+(db.budStart?(notYet?'Ngân sách chưa áp dụng cho tháng này, bắt đầu từ <b>'+viDate(db.budStart)+'</b>':'Ngân sách áp dụng từ <b>'+viDate(db.budStart)+'</b>'):'Ngân sách tính từ đầu mỗi tháng')+'</span><button class="btn sm" data-a="bsOpen">Áp dụng</button></div></section>';
+  if(!notYet)
   h+='<section class="card hero"><div class="row" style="justify-content:space-between"><span class="lbl">Tổng ngân sách'+(base.manual?' (tự đặt)':' (tiền đầu tháng + thu trong tháng)')+'</span><button class="btn sm" data-a="baseEdit">Sửa</button></div>'+
      '<div class="big num" style="margin-bottom:10px">'+fmt(base.v)+'</div>'+
      '<div class="bar '+st+'" style="margin-bottom:12px"><i style="width:'+(base.v?Math.min(100,alloc/base.v*100):(alloc?100:0)).toFixed(1)+'%"></i></div>'+
      '<div class="split"><div><span class="lbl">Đã phân bổ</span><b class="num">'+fmt(alloc)+'</b></div><div><span class="lbl">'+(free<0?'Còn thiếu':'Còn dư')+'</span><b class="num '+(free<0?'neg':'pos')+'">'+fmt(Math.abs(free))+'</b></div></div>'+
-     (base.manual?'':'<p class="muted small" style="margin-top:10px">Tiền đầu tháng '+fmt(base.open)+' + thu trong tháng '+fmt(base.inc)+'</p>')+'</section>';
+     (base.manual?'':'<p class="muted small" style="margin-top:10px">'+(bf?'Tiền lúc bắt đầu ':'Tiền đầu tháng ')+fmt(base.open)+' + thu trong tháng '+fmt(base.inc)+'</p>')+'</section>';
+  if(notYet) return h+'<div class="card empty"><p class="small">Tháng này chưa áp dụng ngân sách. Chọn tháng sau, hoặc bấm “Áp dụng” để đổi ngày bắt đầu.</p></div>';
 
   ['fixed','vari'].forEach(function(g){
     var lim=0,sp=0; G[g].forEach(function(r){lim+=r.lim; sp+=r.sp;});
@@ -930,6 +948,23 @@ function limitEdit(key){
     closeSheet(); render();
   };
   openNum(o);
+}
+function viDate(d){return d.slice(8)+'/'+d.slice(5,7)+'/'+d.slice(0,4);}
+function bsOpen(){
+  var cur=db.budStart||today();
+  openSheet('Áp dụng ngân sách từ',
+    '<p class="muted">Trước ngày bắt đầu, giao dịch và số dư cũ không tính vào ngân sách.</p>'+
+    '<div class="meta2" style="margin-bottom:10px"><button class="btn pri" data-a="bsSet" data-v="now">Bây giờ</button><button class="btn" data-a="bsSet" data-v="next">Đầu tháng sau</button></div>'+
+    '<div class="field"><input id="bsDate" class="fi" type="date" aria-label="Chọn ngày" value="'+esc(cur)+'"></div>'+
+    '<div class="meta2"><button class="btn" data-a="bsSet" data-v="pick">Chọn ngày</button>'+(db.budStart?'<button class="btn" data-a="bsSet" data-v="clear">Tính từ đầu tháng</button>':'')+'</div>');
+}
+function bsSet(v){
+  var d='';
+  if(v==='now') d=today();
+  else if(v==='next') d=shiftMonth(curMonth(),1)+'-01';
+  else if(v==='pick'){d=($('#bsDate')||{}).value||''; if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return toast('Chọn ngày bắt đầu');}
+  mutate(function(){db.budStart=d;},d?'Ngân sách áp dụng từ '+viDate(d):'Ngân sách tính từ đầu tháng');
+  closeSheet(); render();
 }
 function baseEdit(){
   var mk=ui.month, b=baseFor(mk);
@@ -1271,6 +1306,7 @@ function pack(d){
   Object.keys(d.budgets).forEach(function(k){L.push(J(['B',k,d.budgets[k]]));});
   d.cats.forEach(function(c){L.push(J(['C',c.id,c.t,c.n,c.i,c.c,c.g]));});
   Object.keys(d.baseOv).forEach(function(k){L.push(J(['M',k,d.baseOv[k]]));});
+  if(d.budStart) L.push(J(['S',d.budStart]));
   d.rec.forEach(function(r){L.push(J(['R',r.id,r.type,r.amount,r.cat,ai[r.acc],r.note,r.day,r.last,r.debtId]));});
   d.tx.forEach(function(t){
     L.push(J([t.type==='out'?'o':(t.type==='in'?'i':'t'),t.id,ai[t.acc],t.to?ai[t.to]:'',t.cat||'',t.amount,t.date.replace(/-/g,''),t.note||'',t.debtId||'',t.recId||'',Math.round((t.ts||0)/1000).toString(36)]));
@@ -1280,7 +1316,7 @@ function pack(d){
 }
 function unpack(text){
   var lines=String(text).split('\n'), n=0, endOk=false, lastIdx='';
-  var d={accounts:[],tx:[],debts:[],budgets:{},bgroup:{},cats:[],baseOv:{},rec:[]};
+  var d={accounts:[],tx:[],debts:[],budgets:{},bgroup:{},cats:[],baseOv:{},budStart:"",rec:[]};
   function idOf(i){var a=d.accounts[+i]; return a?a.id:'';}
   for(var li=0;li<lines.length;li++){
     var line=lines[li]; if(!line||line.charAt(0)==='#') continue;
@@ -1295,6 +1331,7 @@ function unpack(text){
     else if(t==='G') d.bgroup[f[1]]=f[2];
     else if(t==='C') d.cats.push({id:f[1],t:f[2],n:f[3],i:f[4],c:+f[5],g:f[6]});
     else if(t==='M') d.baseOv[f[1]]=+f[2];
+    else if(t==='S') d.budStart=f[1];
     else if(t==='R') d.rec.push({id:f[1],type:f[2],amount:+f[3],cat:f[4],acc:idOf(f[5]),note:f[6],day:+f[7],last:f[8],debtId:f[9]});
     else if(t==='o'||t==='i'||t==='t'){
       var x={id:f[1],type:t==='o'?'out':(t==='i'?'in':'tf'),acc:idOf(f[2]),amount:+f[5],date:f[6].replace(/^(\d{4})(\d{2})(\d{2})$/,'$1-$2-$3'),note:f[7],ts:(parseInt(f[10],36)||0)*1000};
@@ -1546,6 +1583,8 @@ document.addEventListener('click',function(e){
       } break;
     case 'limitEdit': limitEdit(id); break;
     case 'baseEdit': baseEdit(); break;
+    case 'bsOpen': bsOpen(); break;
+    case 'bsSet': bsSet(el.dataset.v); break;
     case 'grpPick':{
       if(!ui.num) break; ui.num.grp=el.dataset.v;
       el.parentNode.querySelectorAll('button').forEach(function(bt){bt.classList.toggle('on',bt===el);}); break;}
