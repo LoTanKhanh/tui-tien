@@ -1028,8 +1028,16 @@ function debtCard(x){
   var due=i.done?null:dueInfo(d), po=i.done?null:payoff(i.remain,monthly,skipCycle(d)?monthly:debtPaidInMonth(d.id,curMonth()));
   var pays=db.tx.filter(function(t){return t.debtId===d.id;}).sort(sortTx);
   var facts='';
-  if(due) facts+='<li class="'+due.cls+'">'+due.t+'</li>';
-  if(!i.done&&monthly) facts+='<li>Dự kiến trả '+fmt(monthly)+' mỗi tháng</li>';
+  var paidThis=debtPaidInMonth(d.id,curMonth()), skip=skipCycle(d);
+  var need=monthly>0?(skip?0:Math.max(0,monthly-paidThis)):0, nd=d.dueDay?nextDue(d.dueDay):null;
+  var overdue=due&&due.cls==='bad';
+  var key=''; 
+  if(!i.done&&(monthly>0||nd)){
+    var lbl=monthly>0?(need>0?(overdue?'Còn thiếu tháng này':'Cần trả tháng này'):'Tháng này đã trả đủ'):'Hạn trả';
+    var amtH=monthly>0?'<div class="num" style="font-size:28px;font-weight:800;line-height:1.1;'+(need>0?(overdue?'color:var(--bad,#e5736a)':''):'color:var(--good,#6cc08e)')+'">'+(need>0?fmt(need):'✓ '+fmt(monthly))+'</div>':'';
+    var pill=nd?'<div style="text-align:right"><div style="font-size:22px;font-weight:800;line-height:1.1;'+(overdue?'color:var(--bad,#e5736a)':(nd.days<=3&&need>0?'color:var(--warn,#e8b04a)':''))+'">Ngày '+d.dueDay+'</div><div class="small '+(overdue?'bad':(nd.days<=3&&need>0?'warn':'muted'))+'">'+(overdue?'Đã quá hạn':(nd.days===0?'Hôm nay':'còn '+nd.days+' ngày'))+'</div></div>':'';
+    key='<div class="row" style="justify-content:space-between;align-items:flex-end;gap:12px;margin:10px 0 12px;padding:12px;border-radius:14px;background:rgba(127,127,127,.12)"><div><div class="muted small">'+lbl+'</div>'+amtH+(monthly>0&&need>0&&paidThis>0?'<div class="muted small">đã trả '+fmt(paidThis)+' / '+fmt(monthly)+'</div>':'')+'</div>'+pill+'</div>';
+  }
   if(po) facts+='<li>Dự kiến hết nợ khoảng '+po.label.toLowerCase()+' (còn ~'+po.n+' tháng)</li>';
   var hist='';
   if(open){
@@ -1038,7 +1046,7 @@ function debtCard(x){
       ((!d.prepaid&&!pays.length)?'<p class="muted small" style="padding:10px 0">Chưa có lần trả nào.</p>':'')+'</div>';
   }
   return '<article class="card dcard '+(i.done?'done':'')+'"><div class="dhead"><div class="grow"><h3>'+esc(d.name)+'</h3>'+(d.note?'<p class="muted small">'+esc(d.note)+'</p>':'')+'</div><button class="btn sm" data-a="debtEdit" data-id="'+esc(d.id)+'">Sửa</button></div>'+
-    '<div class="dnum"><span class="num big2">'+(i.done?'Đã tất toán':fmt(i.remain))+'</span>'+(i.done?'':' <span class="muted small">còn lại / '+fmt(d.total)+'</span>')+'</div>'+
+    key+(i.done?'<div class="dnum"><span class="num big2">Đã tất toán</span></div>':'<p class="small" style="margin:6px 0 8px">Còn lại <b class="num">'+fmt(i.remain)+'</b> <span class="muted">/ '+fmt(d.total)+'</span></p>')+
     '<div class="bar good" role="progressbar" aria-label="Tiến độ trả nợ" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+Math.round(i.pct)+'"><i style="width:'+i.pct.toFixed(1)+'%"></i></div>'+
     '<p class="muted small" style="margin-top:6px">Đã trả '+fmt(i.paid)+' ('+Math.round(i.pct)+'%)</p>'+
     (facts?'<ul class="facts">'+facts+'</ul>':'<div style="height:12px"></div>')+
